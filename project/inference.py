@@ -12,7 +12,7 @@ import config as cfg
 from dataset import LegalChargeDataset, collate_batch
 from evaluate import logits_to_preds
 from model import BertAttentionClassifier
-from utils import _maybe_opencc_s2t
+from utils import _maybe_opencc_s2t, get_torch_device
 
 
 def load_artifacts(
@@ -71,7 +71,8 @@ def main() -> None:
     parser.add_argument("--text", type=str, default="", help="Single fact string to classify")
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_torch_device()
+    print(f"Device: {device}")
     model, blob = load_artifacts(args.checkpoint, device)
 
     if args.text:

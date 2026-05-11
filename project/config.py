@@ -1,4 +1,10 @@
-"""Hyperparameters and paths for CAIL2018 charge prediction."""
+"""
+Hyperparameters and paths for CAIL2018 charge prediction.
+
+Defaults target laptops (e.g. MacBook Air, Apple M): small legal ELECTRA + gradient
+checkpointing. For a desktop GPU you can switch to the large model and disable
+checkpointing in this file.
+"""
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -20,8 +26,9 @@ TRAIN_FILE = _resolve_data_file("data_train")
 VALID_FILE = _resolve_data_file("data_valid")
 TEST_FILE = _resolve_data_file("data_test")
 
-# Hugging Face backbone (default: legal-domain simplified Chinese ELECTRA)
-PRETRAINED_MODEL_NAME = "hfl/chinese-legal-electra-large-discriminator"
+# Hugging Face backbone (legal-domain ELECTRA). Default: small + checkpointing for memory.
+PRETRAINED_MODEL_NAME = "hfl/chinese-legal-electra-small-discriminator"
+# PRETRAINED_MODEL_NAME = "hfl/chinese-legal-electra-large-discriminator"
 # If None, use PRETRAINED_MODEL_NAME for tokenizer as well.
 TOKENIZER_NAME = None
 
@@ -42,9 +49,12 @@ SEED = 42
 BEST_MODEL_PATH = CHECKPOINT_DIR / "best_model.pt"
 LABEL_MAP_PATH = CHECKPOINT_DIR / "label_map.pt"
 
-USE_GRADIENT_CHECKPOINTING = False
+USE_GRADIENT_CHECKPOINTING = True
 # Optional: convert simplified to traditional before tokenization (requires opencc).
 USE_OPENCC_S2T = False
 
 # Inference
 PRED_THRESHOLD = 0.5
+
+# torch device: None = auto (CUDA > MPS > CPU). Set "cpu" / "mps" / "cuda" to override.
+FORCE_DEVICE = None

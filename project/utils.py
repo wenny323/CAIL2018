@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
-from config import LABEL_MAP_PATH, MIN_LABEL_FREQ, SEED, USE_OPENCC_S2T
+from config import FORCE_DEVICE, LABEL_MAP_PATH, MIN_LABEL_FREQ, SEED, USE_OPENCC_S2T
 
 
 def set_seed(seed: int = SEED) -> None:
@@ -20,6 +20,18 @@ def set_seed(seed: int = SEED) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def get_torch_device() -> torch.device:
+    """Prefer CUDA, then Apple MPS (M1/M2/M3/M4), else CPU."""
+    if FORCE_DEVICE:
+        return torch.device(FORCE_DEVICE)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    mps = getattr(torch.backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def _normalize_label(s: str) -> str:
@@ -37,30 +49,56 @@ def _maybe_opencc_s2t(text: str) -> str:
     return cc.convert(text)
 
 
+def _load_records_from_text(text: str, path: str) -> List[Dict[str, Any]]:
+    """
+    Parse CAIL data: JSON array, or one or more JSON objects (possibly multi-line each).
+    Line-by-line json.loads fails when a record spans multiple lines (e.g. raw newlines in fields).
+    """
+    text = text.strip()
+    if not text:
+        return []
+    text = text.lstrip("\ufeff")
+    if text.startswith("["):
+        data = json.loads(text)
+        if not isinstance(data, list):
+            raise ValueError(f"Expected JSON array in {path}")
+        return [x for x in data if isinstance(x, dict)]
+
+    decoder = json.JSONDecoder()
+    records: List[Dict[str, Any]] = []
+    idx = 0
+    n = len(text)
+    while idx < n:
+        while idx < n and text[idx].isspace():
+            idx += 1
+        if idx >= n:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(
+                f"{e.msg} (in {path} near character {idx})",
+                e.doc,
+                e.pos,
+            ) from e
+        if not isinstance(obj, dict):
+            raise ValueError(f"Expected JSON object in {path} at offset {idx}, got {type(obj).__name__}")
+        records.append(obj)
+        idx = end
+    return records
+
+
 def load_records(path: Path) -> List[Dict[str, Any]]:
-    """Load CAIL records: JSONL (one JSON per line) or a JSON array file (.json or .json.gz)."""
+    """Load CAIL records: JSON array, or concatenated / multi-line JSON objects (.json or .json.gz)."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Data file not found: {path}")
     if path.suffix == ".gz":
         with gzip.open(path, "rt", encoding="utf-8") as f:
-            text = f.read().strip()
+            text = f.read()
     else:
-        text = path.read_text(encoding="utf-8").strip()
-    if not text:
-        return []
-    if text.startswith("["):
-        data = json.loads(text)
-        if not isinstance(data, list):
-            raise ValueError(f"Expected JSON array in {path}")
-        return data
-    records: List[Dict[str, Any]] = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        records.append(json.loads(line))
-    return records
+        text = path.read_text(encoding="utf-8")
+    return _load_records_from_text(text, path=str(path))
 
 
 def iter_accusations(records: List[Dict[str, Any]]) -> List[str]:

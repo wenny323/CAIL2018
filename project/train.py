@@ -18,6 +18,7 @@ from model import BertAttentionClassifier
 from utils import (
     build_filtered_dataset,
     build_label_maps,
+    get_torch_device,
     load_records,
     save_label_map,
     set_seed,
@@ -107,7 +108,8 @@ def main() -> None:
     args = parser.parse_args()
 
     set_seed(cfg.SEED)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_torch_device()
+    print(f"Device: {device}")
 
     train_records = load_records(args.train)
     valid_records = load_records(args.valid)
