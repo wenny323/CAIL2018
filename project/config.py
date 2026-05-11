@@ -5,10 +5,20 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
 CHECKPOINT_DIR = PROJECT_ROOT / "checkpoints"
 
+
+def _resolve_data_file(stem: str) -> Path:
+    """Prefer uncompressed .json; fall back to .json.gz (for GitHub-friendly repos)."""
+    for suffix in (".json", ".json.gz"):
+        p = DATA_DIR / f"{stem}{suffix}"
+        if p.is_file():
+            return p
+    return DATA_DIR / f"{stem}.json"
+
+
 # Practice split filenames (CAIL2018)
-TRAIN_FILE = DATA_DIR / "data_train.json"
-VALID_FILE = DATA_DIR / "data_valid.json"
-TEST_FILE = DATA_DIR / "data_test.json"
+TRAIN_FILE = _resolve_data_file("data_train")
+VALID_FILE = _resolve_data_file("data_valid")
+TEST_FILE = _resolve_data_file("data_test")
 
 # Hugging Face backbone (default: legal-domain simplified Chinese ELECTRA)
 PRETRAINED_MODEL_NAME = "hfl/chinese-legal-electra-large-discriminator"

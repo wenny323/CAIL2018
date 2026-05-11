@@ -1,0 +1,2 @@
+# Raw JSON is large; repository stores .json.gz. Keep local .json untracked or for local-only use.
+*.json

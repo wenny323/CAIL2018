@@ -1,6 +1,7 @@
 """Load CAIL JSON/JSONL, label vocabulary, multi-hot labels, optional OpenCC."""
 from __future__ import annotations
 
+import gzip
 import json
 import random
 from collections import Counter
@@ -37,11 +38,15 @@ def _maybe_opencc_s2t(text: str) -> str:
 
 
 def load_records(path: Path) -> List[Dict[str, Any]]:
-    """Load CAIL records: JSONL (one JSON per line) or a JSON array file."""
+    """Load CAIL records: JSONL (one JSON per line) or a JSON array file (.json or .json.gz)."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Data file not found: {path}")
-    text = path.read_text(encoding="utf-8").strip()
+    if path.suffix == ".gz":
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            text = f.read().strip()
+    else:
+        text = path.read_text(encoding="utf-8").strip()
     if not text:
         return []
     if text.startswith("["):
