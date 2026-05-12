@@ -34,7 +34,7 @@ TOKENIZER_NAME = None
 
 MAX_LEN = 512
 BATCH_SIZE = 4
-EPOCHS = 10
+EPOCHS = 1  # set back to 10 for full training; use 1 to smoke-test / time one full pass
 ENCODER_LR = 2e-5
 BERT_LR = ENCODER_LR  # alias for original spec
 HEAD_LR = 1e-3
@@ -52,6 +52,9 @@ LABEL_MAP_PATH = CHECKPOINT_DIR / "label_map.pt"
 USE_GRADIENT_CHECKPOINTING = True
 # Optional: convert simplified to traditional before tokenization (requires opencc).
 USE_OPENCC_S2T = False
+
+# Training progress: tqdm bar + running loss / LR in postfix every N steps (0 = postfix only at last batch).
+LOG_EVERY_N_STEPS = 50
 
 # Inference
 PRED_THRESHOLD = 0.5

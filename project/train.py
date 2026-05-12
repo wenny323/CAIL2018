@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
@@ -41,11 +42,23 @@ def train_one_epoch(
     scheduler,
     device: torch.device,
     loss_fn: nn.Module,
+    epoch: int,
+    total_epochs: int,
 ) -> float:
     model.train()
     total_loss = 0.0
     n = 0
-    for batch in tqdm(loader, desc="train", leave=False):
+    run_loss = 0.0
+    run_n = 0
+    desc = f"Epoch {epoch}/{total_epochs} train"
+    pbar = tqdm(
+        loader,
+        desc=desc,
+        leave=True,
+        mininterval=0.3,
+        dynamic_ncols=True,
+    )
+    for step, batch in enumerate(pbar, start=1):
         labels = batch["labels"].to(device)
         m = batch["has_label"].to(device)
         input_ids = batch["input_ids"].to(device)
@@ -62,8 +75,21 @@ def train_one_epoch(
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         scheduler.step()
-        total_loss += float(loss.item()) * input_ids.size(0)
-        n += input_ids.size(0)
+        bs = input_ids.size(0)
+        total_loss += float(loss.item()) * bs
+        n += bs
+        run_loss += float(loss.item()) * bs
+        run_n += bs
+        log_every = cfg.LOG_EVERY_N_STEPS
+        if step == len(loader) or (log_every and step % log_every == 0):
+            avg = run_loss / max(run_n, 1)
+            lrs = scheduler.get_last_lr()
+            # Short keys so tqdm does not truncate (was showing "lr=1" with a long string).
+            le = lrs[0] if len(lrs) > 0 else 0.0
+            lh = lrs[1] if len(lrs) > 1 else le
+            pbar.set_postfix(loss=f"{avg:.4f}", le=f"{le:.0e}", lh=f"{lh:.0e}", refresh=False)
+            run_loss = 0.0
+            run_n = 0
     return total_loss / max(n, 1)
 
 
@@ -73,10 +99,17 @@ def evaluate_model(
     loader: DataLoader,
     device: torch.device,
     threshold: float,
+    desc: str = "eval",
 ) -> dict:
     model.eval()
     ys, ps = [], []
-    for batch in tqdm(loader, desc="eval", leave=False):
+    for batch in tqdm(
+        loader,
+        desc=desc,
+        leave=True,
+        mininterval=0.3,
+        dynamic_ncols=True,
+    ):
         sel = batch["has_label"] > 0.5
         if not sel.any():
             continue
@@ -107,9 +140,10 @@ def main() -> None:
     parser.add_argument("--test", type=Path, default=cfg.TEST_FILE)
     args = parser.parse_args()
 
+    t0 = time.perf_counter()
     set_seed(cfg.SEED)
     device = get_torch_device()
-    print(f"Device: {device}")
+    print(f"Device: {device}", flush=True)
 
     train_records = load_records(args.train)
     valid_records = load_records(args.valid)
@@ -153,6 +187,15 @@ def main() -> None:
         num_workers=0,
     )
 
+    print(
+        f"Train samples: {len(train_ds)}  batches/epoch: {len(train_loader)} | "
+        f"Valid: {len(valid_ds)} ({len(valid_loader)} batches) | "
+        f"Test: {len(test_ds)} ({len(test_loader)} batches) | "
+        f"num_classes={num_classes}",
+        flush=True,
+    )
+
+    print("Loading pretrained encoder (first run downloads from Hugging Face)...", flush=True)
     model = BertAttentionClassifier(
         num_classes=num_classes,
         pretrained_model_name=cfg.PRETRAINED_MODEL_NAME,
@@ -186,12 +229,21 @@ def main() -> None:
     best_path = cfg.BEST_MODEL_PATH
 
     for epoch in range(1, cfg.EPOCHS + 1):
-        tr_loss = train_one_epoch(model, train_loader, optimizer, scheduler, device, loss_fn)
-        metrics = evaluate_model(model, valid_loader, device, cfg.PRED_THRESHOLD)
+        tr_loss = train_one_epoch(
+            model, train_loader, optimizer, scheduler, device, loss_fn, epoch, cfg.EPOCHS
+        )
+        metrics = evaluate_model(
+            model,
+            valid_loader,
+            device,
+            cfg.PRED_THRESHOLD,
+            desc=f"Epoch {epoch}/{cfg.EPOCHS} valid",
+        )
         print(
             f"Epoch {epoch}/{cfg.EPOCHS} train_loss={tr_loss:.4f} "
             f"valid macro_f1={metrics['macro_f1']:.4f} micro_f1={metrics['micro_f1']:.4f} "
-            f"subset_acc={metrics['subset_accuracy']:.4f}"
+            f"subset_acc={metrics['subset_accuracy']:.4f}",
+            flush=True,
         )
         if metrics["macro_f1"] > best_f1:
             best_f1 = metrics["macro_f1"]
@@ -208,7 +260,7 @@ def main() -> None:
                 },
                 best_path,
             )
-            print(f"  saved best checkpoint -> {best_path}")
+            print(f"  saved best checkpoint -> {best_path}", flush=True)
 
     if best_path.is_file():
         try:
@@ -221,13 +273,19 @@ def main() -> None:
         model.load_state_dict(blob["model_state_dict"])
 
     if any(teh):
-        tm = evaluate_model(model, test_loader, device, cfg.PRED_THRESHOLD)
+        tm = evaluate_model(
+            model, test_loader, device, cfg.PRED_THRESHOLD, desc="Test eval"
+        )
         print(
             f"Test (gold available): macro_f1={tm['macro_f1']:.4f} "
-            f"micro_f1={tm['micro_f1']:.4f} subset_accuracy={tm['subset_accuracy']:.4f}"
+            f"micro_f1={tm['micro_f1']:.4f} subset_accuracy={tm['subset_accuracy']:.4f}",
+            flush=True,
         )
     else:
-        print("Test set has no gold labels; skipping test metric computation.")
+        print("Test set has no gold labels; skipping test metric computation.", flush=True)
+
+    elapsed = time.perf_counter() - t0
+    print(f"Total wall time: {elapsed:.1f}s ({elapsed / 60.0:.2f} min)", flush=True)
 
 
 if __name__ == "__main__":
